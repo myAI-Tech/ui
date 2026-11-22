@@ -17,7 +17,8 @@
     "./src/styles/font.css",
     "./src/styles/theme.css",
     "./src/styles/tailwind.css",
-    "./src/styles/knowledge.css"
+    "./src/styles/knowledge.css",
+    "./src/styles/spatial.css"
   ],
   "files": [
     "dist",
@@ -36,7 +37,8 @@
     "./theme.css": "./src/styles/theme.css",
     "./tailwind.css": "./src/styles/tailwind.css",
     "./font.css": "./src/styles/font.css",
-    "./knowledge.css": "./src/styles/knowledge.css"
+    "./knowledge.css": "./src/styles/knowledge.css",
+    "./spatial.css": "./src/styles/spatial.css"
   },
   "scripts": {
     "build": "bunx tsup",

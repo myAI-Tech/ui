@@ -43,6 +43,7 @@ bun add @myai-tech/myui@alpha
 - Wizard templates: `docs/09-wizard-templates.md`
 - Profile builder and cards: `docs/10-profile-builder-and-cards.md`
 - Auth login page: `docs/11-auth-login-page.md`
+- Spatial interface (devices, postures, experiences, fold motion): `docs/13-spatial-interface.md`
 - Studio screen map: `docs/08-studio-screen-map.md`
 - Release/publishing flow: `docs/06-release-and-publishing.md`
 

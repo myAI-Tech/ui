@@ -94,3 +94,4 @@ export * from "./components/NodeDetailPanel";
 export * from "./components/KnowledgeIndexPanel";
 export * from "./components/KnowledgeWorkspace";
 export * from "./types";
+export * from "./spatial";
