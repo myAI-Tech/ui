@@ -21,6 +21,7 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Added the `KnowledgeGraphNode` contracts and `knowledge.css` package export for React Flow styling.
 - Added `data-theme` palettes for light, dark, myAI/night, corporate, and business color schemes.
 - Added responsive workspace tiling presets, browser-style pane tabs, and persistent pane action menus.
+- Added a Storybook prototyping studio for theme, responsive-frame, primitive, workflow, workspace, and task-board exploration.
 
 ### Changed
 
@@ -37,6 +38,7 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Fixed Kanban card movement with pointer-driven drop targeting and text-selection prevention.
 - Fixed published package styling by scanning utility classes from the shipped `dist` bundle.
 - Fixed pane creation, zero-height canvas tiling, default close behavior, and responsive workspace overflow.
+- Fixed progress primitives so visual values are also exposed through Radix accessibility semantics.
 
 ## [0.1.0] - 2026-04-07
 

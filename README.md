@@ -45,6 +45,7 @@ bun add @myai-tech/myui@alpha
 - Auth login page: `docs/11-auth-login-page.md`
 - Studio screen map: `docs/08-studio-screen-map.md`
 - Release/publishing flow: `docs/06-release-and-publishing.md`
+- Prototyping playground: `docs/13-prototyping-playground.md`
 
 ## Interactive component testing (Storybook)
 
