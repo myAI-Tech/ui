@@ -114,7 +114,7 @@ type NativeWindow = Window & {
 
 /**
  * Native host (WKWebView on iOS, WebView on Android) streams readings into the
- * page. Contract (see docs/13-spatial-interface.md §5):
+ * page. Contract (see docs/14-spatial-interface.md §5):
  *  - page → native: `webkit.messageHandlers[channel].postMessage({ type: "subscribe" | "unsubscribe" })`
  *    (Android: `window.MyAIHinge.subscribe()`)
  *  - native → page: `window.__myaiHinge({ angle, fold, axis, segments })` via evaluateJavaScript

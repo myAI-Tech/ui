@@ -1,4 +1,4 @@
-# 13 · Spatial interface contract
+# 14 · Spatial interface contract
 
 One interface contract for every myAI frontend. Apps declare **experiences**
 (what panes they have, how they condense, what they expose per posture); the

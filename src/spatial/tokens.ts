@@ -1,7 +1,7 @@
 /**
  * Physics & layout tokens for the spatial interface. Every animated or
  * threshold-driven behaviour reads from here, so a product can retune the
- * feel without touching components. See docs/13-spatial-interface.md.
+ * feel without touching components. See docs/14-spatial-interface.md.
  */
 export type PhysicsTokens = {
   // ── Edge flyout (liquid-glass radial menu) ───────────────────────────

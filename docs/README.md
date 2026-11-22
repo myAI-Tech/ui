@@ -25,7 +25,8 @@ Publishing scope for this library is `@myai-tech`.
 - [10 - Profile Builder and Cards](./10-profile-builder-and-cards.md)
 - [11 - Auth Login Page](./11-auth-login-page.md)
 - [12 - Document Viewers and Thread Blocks](./12-document-viewers-and-thread-blocks.md)
-- [13 - Spatial Interface](./13-spatial-interface.md)
+- [13 - Prototyping Playground](./13-prototyping-playground.md)
+- [14 - Spatial Interface](./14-spatial-interface.md)
 
 ## Interactive docs deployment
 
