@@ -103,7 +103,18 @@ export type SpatialProviderProps = {
   experiences: ExperienceSpec[];
   /** Order experiences appear in the spatial flyout; defaults to the experiences' order. */
   order?: string[];
-  initialState: InitialSpatialState;
+  /**
+   * Application-owned state (controlled). Pass together with `onAction`: the app keeps
+   * SpatialState in its own store (e.g. the Elmish model) and reduces actions with the
+   * exported pure `spatialReducer`. Omit to let the provider hold state itself.
+   */
+  state?: SpatialState;
+  /** Every action the shell raises. Required in controlled mode; an observer otherwise. */
+  onAction?: (a: SpatialAction) => void;
+  /** Starting state when uncontrolled. */
+  initialState?: InitialSpatialState;
+  /** Angle to start the fold spring from (e.g. restored after a reload) so the first frame animates from it. */
+  resumeAngle?: number;
   /** Default "device": swiping switches whole-device desktops. "slot": each half swipes its own saved workspaces. */
   swipeScope?: "device" | "slot";
   /** Contents of a desktop created with ＋. Default: the first experience (usually Home), spanned. */
@@ -119,7 +130,7 @@ export type SpatialProviderProps = {
 };
 
 export function SpatialProvider({
-  device, orientation = "portrait", hinge: hingeProp, experiences, order: orderProp, initialState, tokens: tokenOverrides,
+  device, orientation = "portrait", hinge: hingeProp, experiences, order: orderProp, state: stateProp, onAction, initialState, resumeAngle, tokens: tokenOverrides,
   swipeScope = "device", newDesktop: newDesktopProp, newSlotWorkspace: newSlotProp,
   projects = [], scale = 1, onEvent, onStateChange, children,
 }: SpatialProviderProps) {
@@ -130,10 +141,16 @@ export function SpatialProvider({
   const hinge = React.useMemo(() => hingeProp ?? simulatedHinge(180), [hingeProp]);
   const byId = React.useMemo(() => Object.fromEntries(experiences.map(e => [e.id, e])), [experiences]);
   const order = React.useMemo(() => orderProp ?? experiences.map(e => e.id), [orderProp, experiences]);
-  const [state, dispatch] = React.useReducer(spatialReducer, initialState, initialSpatialState);
+  const [own, ownDispatch] = React.useReducer(spatialReducer, initialState ?? { desktops: [{ slots: [{ experience: experiences[0]?.id ?? "" }] }] }, initialSpatialState);
+  const controlled = stateProp !== undefined;
+  const state = controlled ? stateProp : own;
+  const onActionRef = React.useRef(onAction);
+  onActionRef.current = onAction;
+  // Controlled: the app reduces. Uncontrolled: reduce here, and still report to onAction as an observer.
+  const dispatch = React.useCallback<React.Dispatch<SpatialAction>>(a => { if (!controlled) ownDispatch(a); onActionRef.current?.(a); }, [controlled]);
   const desk = activeDesktop(state);
 
-  const fold = React.useMemo(() => new FoldClock(targetAngle(hinge.read(), tokens), tokens), [hinge]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const fold = React.useMemo(() => new FoldClock(resumeAngle ?? targetAngle(hinge.read(), tokens), tokens), [hinge]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [posture, setPosture] = React.useState(() => computePosture(device, orientation, fold.angle.x, tokens));
 
   // Hinge readings only move the spring's target.

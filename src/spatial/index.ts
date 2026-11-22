@@ -8,6 +8,7 @@ export * from "./device";
 export * from "./hinge";
 export * from "./experience";
 export * from "./state";
+export * from "./persistence";
 
 // React
 export { SpatialProvider, useSpatial, useFoldFrame, usePosture, usePostureState, useExperience, FoldClock } from "./react/context";
@@ -22,3 +23,5 @@ export type { FlowItem, FoldTransitionProps } from "./react/FoldTransition";
 export { HalfFoldDeck, TouchBar, VirtualKeyboard } from "./react/HalfFoldDeck";
 export { OverlayPanel } from "./react/OverlayPanel";
 export { DeviceFrame } from "./react/DeviceFrame";
+export { useMeasuredDevice, readViewport } from "./react/measure";
+export { SnapshotRecorder } from "./react/SnapshotRecorder";

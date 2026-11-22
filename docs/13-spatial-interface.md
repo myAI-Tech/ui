@@ -138,19 +138,90 @@ export const walkthrough = defineExperience({
 
 ### Shell wiring
 
+Real apps own the state; the library only raises actions (see §2.1):
+
 ```tsx
-<SpatialProvider device={devices.iphoneDuo} hinge={detectHinge()} experiences={experiences}
-  initialState={{ desktops: [{ slots: [{ experience: "home" }, { experience: "Walkthrough" }] }], pairs }}
+const { device, orientation } = useMeasuredDevice();            // real viewport + segments (§2.2)
+const snap = useMemo(() => store.load(), []);                    // reload continuity (§2.3)
+const [state, setState] = useState(() => snap?.state ?? initialSpatialState({ desktops: [{ slots: [{ experience: "home" }] }] }));
+
+<SpatialProvider device={device} orientation={orientation} hinge={detectHinge()} experiences={experiences}
+  state={state} onAction={a => setState(s => spatialReducer(s, a))} resumeAngle={snap?.angle}
   swipeScope="device" newDesktop={() => ({ slots: [{ experience: "home" }], inner: "span", focus: 0, tiles: 2, tileRatio: 0.5 })}
-  projects={projects} onEvent={toastOrTelemetry} onStateChange={persist}>
+  projects={projects} onEvent={toastOrTelemetry}>
+  <SnapshotRecorder store={store} />
   <SpatialShell controls={{ chat: <ChatWorkspace />, onSearch, onAccount }} />
 </SpatialProvider>
 ```
 
+Labs and Storybook can omit `state` and pass `initialState` instead; the provider
+then holds state itself and still reports every action to `onAction`.
+
 `onEvent` reports `experience`, `action`, `pair-applied` (with `needsUnfold`),
 `pair-saved`, and `merge` (with `deferred` when the device is folded). Apps turn
-these into toasts or telemetry. `onStateChange` is the persistence hook (pairs,
-handedness, layout memory).
+these into toasts or telemetry.
+
+### 2.1 State ownership
+
+**The application owns `SpatialState`.** The library is a renderer plus a pure
+reducer: the shell turns gestures into `SpatialAction`s, the app reduces them
+(with `spatialReducer`, or its own logic) in its store, and passes the result back
+as `state`. In DevEn that store is the Elmish model: add
+`SpatialMsg of SpatialAction` and call the bound `spatialReducer` in `update`.
+Other parts of the app change layout by producing the same actions; for example,
+opening the Explorer becomes `setExperience` on the focused slot.
+
+The library keeps only *ephemeral, per-frame* state internally: hinge and flyout
+springs, drags in progress, which banners are open, and the posture derived from
+the hinge. None of it is meaningful to persist or to drive from outside.
+
+*Considered: a Web Worker state machine owning animation and state.* Rejected for
+now. Workers can't touch the DOM, so every frame would still be applied on the
+main thread, adding a message hop per frame. The springs are a few multiply-adds,
+so there's nothing to offload, and the state machine is already a pure reducer
+the app can run anywhere. A worker earns its place only if fold physics become
+genuinely expensive (e.g. a real fluid simulation rendered to an `OffscreenCanvas`),
+or if several windows or devices must share one orchestrator. In that case the
+worker would host `spatialReducer` plus a `BroadcastChannel`, which is also the
+seam federated machines or native clients would use.
+
+### 2.2 Real devices: measured profiles and the probe
+
+`devices.*` are lab presets. In an app, `useMeasuredDevice()` (or the pure
+`measuredDevice(size, segments)`) builds the profile from the window size and
+viewport segments: two side-by-side segments → book foldable (crease width = the
+gap), two stacked → horizontal crease, otherwise one screen (phone below 600px on
+the short side, large screen above).
+
+A folded device reports no segments, so it measures as a phone. Unfolding then
+arrives as a profile change rather than a continuous transition unless a hinge
+source supplies the angle. Exactly how real hardware reports this is what the
+probe is for.
+
+**Storybook → Workspaces / Spatial Device Probe** runs the DevEn IDE experiences
+full-screen on the measured viewport, with app-owned state and reload continuity.
+A floating panel shows:
+
+* the window, screen and visual-viewport sizes, DPR and orientation;
+* viewport segments, `navigator.devicePosture`, and the segment / posture media queries;
+* the hinge source, its capabilities and live reading, plus the live fold angle and openness;
+* the posture, resolved surfaces and their arrangements.
+
+It can switch to a simulated hinge with an angle slider, tune the posture,
+spring and layout tokens live, and copy the report, the measured device profile
+and the tuned tokens as JSON. Open the story's iframe URL on the device itself,
+or use the browser's responsive mode on desktop.
+
+### 2.3 Reload continuity
+
+Until native clients exist, `browserSnapshotStore()` persists a versioned,
+expiring snapshot to localStorage. It falls back to a compact cookie in
+private or blocked modes, keeping the fold angle even when the state doesn't fit.
+The snapshot holds the state, fold angle, posture and orientation.
+`<SnapshotRecorder>` saves it debounced and on `pagehide`. On load, pass
+`snap.state` and `resumeAngle={snap.angle}`: the fold spring starts from the saved
+angle and animates to the current reading, so a reload on a half-open device eases
+into place instead of snapping. Snapshots expire after 30 minutes by default.
 
 ### Interaction contract (built into the shell)
 
@@ -398,7 +469,9 @@ Suggested per-mode mapping for DevEn (to confirm):
   import "@myai-tech/myui/spatial.css";
   ```
 * Storybook: *Workspaces / Spatial Interface* (`stories/SpatialInterface.stories.tsx`,
-  fixtures in `stories/spatialFixtures.tsx`). It uses `DeviceFrame` and a simulated hinge.
+  fixtures in `stories/spatialFixtures.tsx`) uses `DeviceFrame` and a simulated hinge.
+  *Workspaces / Spatial Device Probe* (`stories/spatialProbe.tsx`) is the real-device
+  harness from §2.2.
 * Still to do: unit tests for `resolveArrangement`, `resolveDevice`, `spatialReducer`,
   `computePosture`, `surfacesFor` and `targetAngle`. They are pure functions. The repo has
   no test runner yet.
@@ -418,6 +491,15 @@ and pane `render` functions are F# lambdas returning `ReactElement`.
 
 ## 8. Known gaps
 
+* **Pane instance continuity.** When the arrangement changes (unfold, tabs → halves,
+  chat tucked), React remounts pane components, so editor cursor and scroll reset unless
+  the pane keeps that state itself. Fix in the library: render panes once into stable
+  host nodes and move them between layouts with portals. Fix per app: Monaco with `path`
+  and `saveViewState`.
+* **Folded → unfolded on real hardware** measures as a profile change (§2.2); smooth
+  transitions there depend on a hinge source with an angle. Confirm with the probe.
+* Physical-gap foldables: `creaseWidth` is measured but layouts still assume a continuous
+  display (no gutter is reserved).
 * Posture hysteresis (§5.2).
 * Horizontal-crease fold transitions (§4).
 * Tablet / desktop tiling UX is parked; the core supports 1–4 tiles plus a divider only.

@@ -150,3 +150,37 @@ export function handleTargets(posture: Posture, vp: ViewportLayout, inner: Inner
   const slot = posture.kind === "tiles" ? focus : 0;
   return { left: { slot: posture.kind === "book" ? 1 : slot, region: app }, right: { slot, region: app } };
 }
+
+export type MeasureOptions = {
+  /** Override the chrome choice (default: floating on compact screens, rail otherwise). */
+  chrome?: DeviceProfile["chrome"];
+  /** Short-side width (CSS px) below which a single screen is treated as a phone. */
+  compactBelow?: number;
+};
+
+/**
+ * A device profile from what the browser actually reports, for real
+ * deployments (the `devices` presets are for labs and Storybook). Two
+ * side-by-side viewport segments mean an unfolded book-style foldable; two
+ * stacked segments mean a horizontal crease. Anything else is one screen.
+ * Note: a folded foldable reports no segments, so it measures as a slab and
+ * the unfold arrives as a profile change rather than a continuous transition.
+ */
+export function measuredDevice(size: Size, segments: Rect[] | null, opts: MeasureOptions = {}): { device: DeviceProfile; orientation: Orientation } {
+  const frame = { bezel: 0, radius: 0 };
+  if (segments && segments.length === 2) {
+    const [a, b] = segments, sideBySide = Math.abs(a.y - b.y) < 1;
+    const gap = sideBySide ? b.x - (a.x + a.w) : b.y - (a.y + a.h);
+    const half = sideBySide ? { w: a.w, h: a.h } : { w: a.h, h: a.w };   // inner.half is described in book orientation
+    return {
+      device: { id: "measured-foldable", label: "Measured foldable", kind: "foldable", screen: half, inner: { half, creaseWidth: Math.max(0, gap) }, chrome: opts.chrome ?? "rail", frame },
+      orientation: sideBySide ? "portrait" : "landscape",
+    };
+  }
+  const portrait = { w: Math.min(size.w, size.h), h: Math.max(size.w, size.h) };
+  const compact = portrait.w < (opts.compactBelow ?? 600);
+  return {
+    device: { id: compact ? "measured-slab" : "measured-large", label: compact ? "Measured phone" : "Measured large screen", kind: compact ? "slab" : "tablet", screen: portrait, chrome: opts.chrome ?? (compact ? "floating" : "rail"), frame },
+    orientation: size.w > size.h ? "landscape" : "portrait",
+  };
+}
