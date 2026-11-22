@@ -11,11 +11,11 @@
  */
 import * as React from "react";
 import {
-  SnapshotRecorder, SpatialProvider, SpatialShell, browserSnapshotStore, defaultPhysics, detectHinge, initialSpatialState, readViewport,
-  simulatedHinge, spatialReducer, useFoldFrame, useMeasuredDevice, useSpatial,
+  SnapshotRecorder, SpatialProfiler, SpatialProvider, browserSnapshotStore, defaultPhysics, detectHinge, initialSpatialState, readViewport,
+  simulatedHinge, spatialProfiler, spatialReducer, useFoldFrame, useMeasuredDevice, useSpatial, useSpatialProfiler,
   type HingeReading, type HingeSource, type PhysicsTokens, type SpatialAction, type SpatialState,
 } from "../src/spatial";
-import { devenExperiences } from "./spatialFixtures";
+import { DemoSpatialShell, devenExperiences } from "./spatialFixtures";
 
 const store = browserSnapshotStore({ key: "myui.spatial.probe" });
 const TUNE: [keyof PhysicsTokens, string, number, number, number][] = [
@@ -37,6 +37,7 @@ function Report({ tokens, setTokens, sim, setSim, simAngle, setSimAngle }: {
 }) {
   const { device, orientation, posture, viewport, hinge, surfaces, arrangements, state } = useSpatial();
   const reading = useHingeReading(hinge);
+  const metrics = useSpatialProfiler();
   const live = React.useRef<HTMLSpanElement>(null);
   useFoldFrame(f => { if (live.current) live.current.textContent = `${f.angle.toFixed(1)}° · open ${(f.openness * 100).toFixed(0)}%`; });
   const [open, setOpen] = React.useState(true);
@@ -50,7 +51,7 @@ function Report({ tokens, setTokens, sim, setSim, simAngle, setSimAngle }: {
     hinge: { source: hinge.id, capabilities: hinge.capabilities, reading },
     measured: { device, orientation }, posture, viewport,
     surfaces: surfaces.map(s => ({ slot: s.slot, w: s.w, h: s.h, arrangement: arrangements.get(s.slot)?.kind })),
-    desktops: state.desktops.length, tokens,
+    desktops: state.desktops.length, metrics, tokens,
   };
   const copy = (x: unknown) => navigator.clipboard?.writeText(JSON.stringify(x, null, 2));
   const row: React.CSSProperties = { display: "grid", gridTemplateColumns: "110px 1fr 54px", gap: 6, alignItems: "center", fontSize: 11 };
@@ -67,6 +68,7 @@ function Report({ tokens, setTokens, sim, setSim, simAngle, setSimAngle }: {
           <button onClick={() => copy(report)}>Copy report</button>
           <button onClick={() => copy(device)}>Copy device profile</button>
           <button onClick={() => copy({ ...defaultPhysics, ...tokens })}>Copy tokens</button>
+          <button onClick={() => spatialProfiler.reset()}>Reset metrics</button>
           <button onClick={() => { store.clear(); location.reload(); }}>Clear snapshot + reload</button>
         </div>
         <label style={row}><span>Hinge</span><select value={sim ? "sim" : "detect"} onChange={e => setSim(e.target.value === "sim")}>
@@ -101,9 +103,9 @@ export function DeviceProbe() {
   return (
     <SpatialProvider device={device} orientation={orientation} hinge={hinge} experiences={devenExperiences} state={state} onAction={onAction}
       resumeAngle={snap?.angle} tokens={tokens} projects={[{ id: "aide", name: "DevEn", color: "#34d399" }]}>
-      <SnapshotRecorder store={store} />
+      <SnapshotRecorder store={store} onRestore={snapshot => { if (snapshot.state) setState(snapshot.state); }} />
       <div className="dark" style={{ position: "fixed", inset: 0, overflow: "hidden", background: "#06080c" }}>
-        <SpatialShell controls={{ chat: <div style={{ padding: 12 }}>Overlay chat</div> }} />
+        <SpatialProfiler><DemoSpatialShell /></SpatialProfiler>
       </div>
       <Report tokens={tokens} setTokens={setTokens} sim={sim} setSim={setSim} simAngle={simAngle} setSimAngle={setSimAngle} />
     </SpatialProvider>

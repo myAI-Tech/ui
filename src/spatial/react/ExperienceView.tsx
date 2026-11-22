@@ -1,6 +1,7 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import type { Surface } from "../device";
-import type { ExperienceSpec, PaneContext, PaneSpec, WindowRect } from "../experience";
+import type { Arrangement, ExperienceSpec, PaneContext, PaneSpec, WindowRect } from "../experience";
 import { clamp } from "../physics";
 import { useSpatial } from "./context";
 
@@ -8,39 +9,70 @@ export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Bool
 const cssVar = (name: string, v: string | undefined) => (v ? ({ [name]: v } as React.CSSProperties) : undefined);
 
 /** Shell-level UI state that chrome and views share (banner drop-downs). */
-type ShellUi = { banners: Record<string, boolean>; setBanner: (key: string, open: boolean) => void };
-export const ShellUiContext = React.createContext<ShellUi>({ banners: {}, setBanner: () => {} });
+type ShellUi = { banners: Record<string, boolean>; setBanner: (key: string, open: boolean) => void; emptySurface: string; dropLeft: string; dropRight: string };
+export const ShellUiContext = React.createContext<ShellUi>({ banners: {}, setBanner: () => {}, emptySurface: "Content is already visible on another surface.", dropLeft: "left", dropRight: "right" });
 export const bannerKey = (slot: number, exp: string, pane: string) => `${slot}:${exp}:${pane}`;
 
-export function PaneFrame({ spec, ctx, className }: { spec: PaneSpec; ctx: PaneContext; className?: string }) {
+type PaneHosts = { get(key: string): HTMLElement | undefined };
+const PaneHostContext = React.createContext<PaneHosts | null>(null);
+
+export function PaneHostProvider({ children }: { children: React.ReactNode }) {
+  const hosts = React.useRef(new Map<string, HTMLElement>());
+  const value = React.useMemo<PaneHosts>(() => ({
+    get(key) {
+      if (typeof document === "undefined") return undefined;
+      let host = hosts.current.get(key);
+      if (!host) {
+        host = document.createElement("div");
+        host.className = "sp-pane-host";
+        host.dataset.paneHost = key;
+        hosts.current.set(key, host);
+      }
+      return host;
+    },
+  }), []);
+  return <PaneHostContext.Provider value={value}>{children}</PaneHostContext.Provider>;
+}
+
+export const usePaneHost = (key: string | null) => {
+  const registry = React.useContext(PaneHostContext);
+  return key ? registry?.get(key) : undefined;
+};
+
+function PaneHost({ host, fallback }: { host?: HTMLElement; fallback: () => React.ReactNode }) {
+  const attach = React.useCallback((element: HTMLDivElement | null) => {
+    if (element && host && host.parentElement !== element) element.appendChild(host);
+  }, [host]);
+  return <div ref={attach} className="sp-pane-b">{host ? null : fallback()}</div>;
+}
+
+export function PaneFrame({ spec, ctx, className, host }: { spec: PaneSpec; ctx: PaneContext; className?: string; host?: HTMLElement }) {
   return (
     <section className={cx("sp-pane", className)} style={cssVar("--c", spec.color)} data-pane={spec.id}>
-      <header className="sp-pane-h"><i />{spec.title}{spec.owner && <em>{spec.owner === "shared" ? "myui" : "app"}</em>}</header>
-      <div className="sp-pane-b">{spec.render(ctx)}</div>
+      <header className="sp-pane-h"><i />{spec.title}{spec.badge && <em>{spec.badge}</em>}</header>
+      <PaneHost host={host} fallback={() => spec.render(ctx)} />
     </section>
   );
 }
 
-export function PaneBanner({ spec, ctx, open, onToggle }: { spec: PaneSpec; ctx: PaneContext; open: boolean; onToggle: () => void }) {
+export function PaneBanner({ spec, ctx, open, onToggle, host }: { spec: PaneSpec; ctx: PaneContext; open: boolean; onToggle: () => void; host?: HTMLElement }) {
   return (
     <div className={cx("sp-banner", open && "is-open")} style={cssVar("--c", spec.color)} onClick={onToggle} data-pane={spec.id}>
-      <span className="sp-bn-k">{(spec.short ?? spec.title).toUpperCase()}</span>
+      <span className="sp-bn-k">{spec.short ?? spec.title}</span>
       <span className="sp-bn-t">{spec.banner?.(ctx) ?? spec.summary ?? spec.title}</span>
-      <span className="sp-bn-x">⌄</span>
-      <div className="sp-bn-drop" onClick={e => e.stopPropagation()}>{open && spec.render({ ...ctx, condensed: true })}</div>
+      <span className="sp-bn-x">{spec.expandIcon ?? "⌄"}</span>
+      <div className="sp-bn-drop" onClick={e => e.stopPropagation()}>{open && <PaneHost host={host} fallback={() => spec.render({ ...ctx, condensed: true })} />}</div>
     </div>
   );
 }
 
-export function ExperienceHeader({ exp, slot }: { exp: ExperienceSpec; slot: number }) {
-  const { desktop, projects, dispatch } = useSpatial();
-  const pid = desktop.slots[slot]?.project, pr = projects.find(p => p.id === pid);
-  const cycle = () => { const i = projects.findIndex(p => p.id === pid); dispatch({ type: "setProject", slot, project: projects[(i + 1) % projects.length].id }); };
+export function ExperienceHeader({ exp, slot, surface, projectId }: { exp: ExperienceSpec; slot: number; surface: Surface; projectId?: string }) {
+  const { posture } = useSpatial();
+  if (exp.header === false) return null;
+  if (exp.header) return <>{exp.header({ experience: exp, slot, surface, posture: posture.kind, scopeId: projectId })}</>;
   return (
     <div className="sp-desk-head">
       <span className="sp-chip" style={cssVar("--c", exp.accent)}>{exp.label}</span>
-      {pr && <button type="button" className="sp-proj" style={cssVar("--c", pr.color)} onClick={cycle}>{pr.name} ▾</button>}
-      {exp.layout && <span className="sp-meta">{exp.layout} · {exp.panes.length} panes</span>}
     </div>
   );
 }
@@ -52,6 +84,7 @@ export function PageMarkers({ panes, active, side, onSelect, onMerge }: {
   panes: PaneSpec[]; active: number; side: "left" | "right"; onSelect: (i: number) => void; onMerge: (left: string, right: string) => void;
 }) {
   const [drag, setDrag] = React.useState<MarkerDrag | null>(null);
+  const ui = React.useContext(ShellUiContext);
   const begin = (e: React.PointerEvent, p: PaneSpec, i: number) => {
     const x0 = e.clientX, y0 = e.clientY; let cur: MarkerDrag | null = null;
     const move = (ev: PointerEvent) => {
@@ -76,7 +109,7 @@ export function PageMarkers({ panes, active, side, onSelect, onMerge }: {
           {drag && drag.id !== p.id && (
             <span className="sp-mk-drop">
               {(["L", "R"] as const).map(sd => (
-                <b key={sd} data-drop={sd} data-pane={p.id} className={cx(drag.hot?.id === p.id && drag.hot.side === sd && "is-hot")}>{sd === "L" ? "◧ left" : "right ◨"}</b>
+                <b key={sd} data-drop={sd} data-pane={p.id} className={cx(drag.hot?.id === p.id && drag.hot.side === sd && "is-hot")}>{sd === "L" ? `◧ ${ui.dropLeft}` : `${ui.dropRight} ◨`}</b>
               ))}
             </span>
           )}
@@ -88,34 +121,41 @@ export function PageMarkers({ panes, active, side, onSelect, onMerge }: {
   );
 }
 
-function SplitBody({ surface, expId, ratio, snap, padLeft, left, right }: {
-  surface: Surface; expId: string; ratio: number; snap: number | null; padLeft: number; left: React.ReactNode; right: React.ReactNode;
+function SplitBody({ surface, expId, ratio, snap, axis, padLeft, padTop, left, right }: {
+  surface: Surface; expId: string; ratio: number; snap: number | null; axis: "vertical" | "horizontal"; padLeft: number; padTop: number; left: React.ReactNode; right: React.ReactNode;
 }) {
   const { tokens, scale, dispatch } = useSpatial();
   const body = React.useRef<HTMLDivElement>(null);
-  const cols = (r: number) => `${Math.max(0, r * surface.w - padLeft - 7)}px 14px minmax(0,1fr)`;   // divider centre sits at r·width
+  const dividerWidth = surface.occlusion ? Math.max(14, axis === "vertical" ? surface.occlusion.w : surface.occlusion.h) : 14;
+  const tracks = (r: number) => `${Math.max(0, r * (axis === "vertical" ? surface.w : surface.h) - (axis === "vertical" ? padLeft : body.current?.offsetTop ?? padTop) - dividerWidth / 2)}px ${dividerWidth}px minmax(0,1fr)`;
+  React.useLayoutEffect(() => {
+    if (axis === "horizontal" && body.current) body.current.style.gridTemplateRows = tracks(ratio);
+  }, [axis, ratio, surface.h, dividerWidth]); // eslint-disable-line react-hooks/exhaustive-deps
   const onPointerDown = (e: React.PointerEvent) => {
+    if (surface.crease?.separating) return;
     e.stopPropagation();
     let r = ratio;
     const move = (ev: PointerEvent) => {
       const desk = body.current?.closest(".sp-desk"); if (!desk || !body.current) return;
-      r = clamp((ev.clientX - desk.getBoundingClientRect().left) / scale / surface.w, tokens.dividerMin, tokens.dividerMax);
+      const bounds = desk.getBoundingClientRect();
+      r = clamp(((axis === "vertical" ? ev.clientX - bounds.left : ev.clientY - bounds.top) / scale) / (axis === "vertical" ? surface.w : surface.h), tokens.dividerMin, tokens.dividerMax);
       if (snap != null && Math.abs(r - snap) < tokens.creaseSnap) r = snap;   // magnetic to the crease
-      body.current.style.gridTemplateColumns = cols(r);
+      if (axis === "vertical") body.current.style.gridTemplateColumns = tracks(r);
+      else body.current.style.gridTemplateRows = tracks(r);
     };
     const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); dispatch({ type: "setRatio", experience: expId, ratio: r }); };
     addEventListener("pointermove", move); addEventListener("pointerup", up);
   };
   return (
-    <div ref={body} className="sp-two" style={{ gridTemplateColumns: cols(ratio) }}>
+    <div ref={body} className={cx("sp-two", axis === "horizontal" && "is-horizontal")} style={axis === "vertical" ? { gridTemplateColumns: tracks(ratio) } : { gridTemplateRows: tracks(ratio) }}>
       <div className="sp-col">{left}</div>
-      <div className="sp-divider" onPointerDown={onPointerDown} role="separator" aria-orientation="vertical"><i /></div>
+      <div className={cx("sp-divider", axis === "horizontal" && "is-horizontal")} onPointerDown={onPointerDown} role="separator" aria-orientation={axis}><i /></div>
       <div className="sp-col">{right}</div>
     </div>
   );
 }
 
-export function FreeCanvas({ windows, panes, ctx, onCommit }: { windows: WindowRect[]; panes: PaneSpec[]; ctx: PaneContext; onCommit: (w: WindowRect[]) => void }) {
+export function FreeCanvas({ windows, panes, ctx, hosts, onCommit }: { windows: WindowRect[]; panes: PaneSpec[]; ctx: PaneContext; hosts?: Map<string, HTMLElement | undefined>; onCommit: (w: WindowRect[]) => void }) {
   const [wins, setWins] = React.useState(windows);
   const [order, setOrder] = React.useState(() => windows.map((_, i) => i));
   React.useEffect(() => setWins(windows), [windows]);
@@ -141,7 +181,7 @@ export function FreeCanvas({ windows, panes, ctx, onCommit }: { windows: WindowR
           <div key={i} className="sp-win" style={{ left: `${w.x}%`, top: `${w.y}%`, width: `${w.w}%`, height: `${w.h}%`, zIndex: order.indexOf(i) + 1 }}
             onPointerDown={() => setOrder(o => [...o.filter(x => x !== i), i])}>
             <div className="sp-win-h" style={cssVar("--c", p.color)} onPointerDown={e => start(e, i, "move")}><i />{p.title}</div>
-            <div className="sp-pane-b">{p.render(ctx)}</div>
+            <PaneHost host={hosts?.get(p.id)} fallback={() => p.render(ctx)} />
             <span className="sp-win-rz" onPointerDown={e => start(e, i, "size")} />
           </div>
         );
@@ -151,30 +191,36 @@ export function FreeCanvas({ windows, panes, ctx, onCommit }: { windows: WindowR
 }
 
 /** Renders one experience on one surface according to its device-resolved arrangement. */
-export function ExperienceView({ surface }: { surface: Surface }) {
-  const { experiences, desktop, arrangements, posture, dispatch, emit } = useSpatial();
+export function ExperienceView({ surface, arrangement, experienceId, projectId, identity }: {
+  surface: Surface; arrangement?: Arrangement; experienceId?: string; projectId?: string; identity?: string;
+}) {
+  const { experiences, desktop, arrangements, posture, viewport, visibleFocus, dispatch, emit } = useSpatial();
   const ui = React.useContext(ShellUiContext);
-  const exp = experiences[desktop.slots[surface.slot]?.experience], arr = arrangements.get(surface.slot);
+  const registry = React.useContext(PaneHostContext);
+  const exp = experiences[experienceId ?? desktop.slots[surface.slot]?.experience], arr = arrangement ?? arrangements.get(surface.slot);
   if (!exp || !arr) return null;
   if (exp.render) return <>{exp.render({ slot: surface.slot, surface, posture: posture.kind, span: surface.span })}</>;
 
   const byId = (id: string) => exp.panes.find(p => p.id === id)!;
   const ctx: PaneContext = { experience: exp.id, slot: surface.slot, surface, posture: posture.kind, condensed: false };
+  const project = projectId ?? desktop.slots[surface.slot]?.project;
+  const hostIdentity = identity ?? `${desktop.id}/${project ?? ""}/${surface.slot}/${exp.id}`;
+  const hosts = new Map(exp.panes.map(pane => [pane.id, registry?.get(`${hostIdentity}/${pane.id}`)]));
   const pad = { top: surface.floating ? 62 : 16, right: surface.rail ? 46 : 16, left: 16 };
   const banner = (id: string) => {
     const k = bannerKey(surface.slot, exp.id, id);
-    return <PaneBanner key={id} spec={byId(id)} ctx={ctx} open={!!ui.banners[k]} onToggle={() => ui.setBanner(k, !ui.banners[k])} />;
+    return <PaneBanner key={id} spec={byId(id)} ctx={ctx} host={hosts.get(id)} open={!!ui.banners[k]} onToggle={() => ui.setBanner(k, !ui.banners[k])} />;
   };
-  const frame = (id: string, small = false) => <PaneFrame key={id} spec={byId(id)} ctx={ctx} className={small ? "is-small" : undefined} />;
+  const frame = (id: string, small = false) => <PaneFrame key={id} spec={byId(id)} ctx={ctx} host={hosts.get(id)} className={small ? "is-small" : undefined} />;
 
   let body: React.ReactNode;
   switch (arr.kind) {
-    case "free": body = <FreeCanvas windows={arr.windows} panes={exp.panes} ctx={ctx} onCommit={w => dispatch({ type: "setWindows", key: arr.key, windows: w })} />; break;
+    case "free": body = <FreeCanvas windows={arr.windows} panes={exp.panes} ctx={ctx} hosts={hosts} onCommit={w => dispatch({ type: "setWindows", key: arr.key, windows: w })} />; break;
     case "single": body = frame(arr.pane); break;
     case "stack": body = arr.panes.map((id, i) => frame(id, i > 0)); break;
     case "banner": body = <>{arr.banners.map(banner)}{frame(arr.primary)}</>; break;
     case "two":
-      body = <SplitBody surface={surface} expId={exp.id} ratio={arr.ratio} snap={arr.snap} padLeft={pad.left}
+      body = <SplitBody surface={surface} expId={exp.id} ratio={arr.ratio} snap={arr.snap} axis={arr.axis} padLeft={pad.left} padTop={pad.top}
         left={frame(arr.left)} right={<>{arr.banners.map(banner)}{arr.right.map(id => frame(id))}</>} />;
       break;
     case "tabs":
@@ -189,14 +235,26 @@ export function ExperienceView({ surface }: { surface: Surface }) {
           }} />
       </>;
       break;
+    case "empty": body = <div className="sp-empty-surface">{ui.emptySurface}</div>; break;
     default: body = null;
   }
   const tabsPad = arr.kind === "tabs" ? (arr.side === "right" ? { paddingRight: pad.right + 28 } : { paddingLeft: pad.left + 30 }) : {};
   return (
-    <div className={cx("sp-desk", `is-${arr.kind}`)} style={{ paddingTop: pad.top, paddingRight: pad.right, paddingLeft: pad.left, ...tabsPad,
-      ...cssVar("--sp-marker-right", `${surface.rail ? 40 : 0}px`), ...cssVar("--sp-marker-top", `${pad.top + 40}px`) }}>
-      <ExperienceHeader exp={exp} slot={surface.slot} />
-      {body}
-    </div>
+    <>
+      {typeof document !== "undefined" && exp.panes.flatMap(pane => {
+        const host = hosts.get(pane.id);
+        if (!host) return [];
+        const deck = posture.kind === "laptop" && surface.slot === visibleFocus ? exp.postures?.laptop?.deck : undefined;
+        const onDeck = deck?.kind === "pane" && deck.pane === pane.id && viewport.deck;
+        const condensed = arr.kind === "banner" && arr.banners.includes(pane.id);
+        const paneContext: PaneContext = { ...ctx, ...(onDeck ? { surface: { ...surface, ...viewport.deck! } } : {}), condensed };
+        return [createPortal(pane.render(paneContext), host, pane.id)];
+      })}
+      <div className={cx("sp-desk", `is-${arr.kind}`)} style={{ paddingTop: pad.top, paddingRight: pad.right, paddingLeft: pad.left, ...tabsPad,
+        ...cssVar("--sp-marker-right", `${surface.rail ? 40 : 0}px`), ...cssVar("--sp-marker-top", `${pad.top + 40}px`) }}>
+        <ExperienceHeader exp={exp} slot={surface.slot} surface={surface} projectId={project} />
+        {body}
+      </div>
+    </>
   );
 }

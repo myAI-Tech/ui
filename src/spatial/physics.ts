@@ -1,4 +1,5 @@
 import type { PhysicsTokens } from "./tokens";
+import { activeSpatialProfilerCount, recordSpatialFrame } from "./profiler";
 
 export const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -77,9 +78,12 @@ class Ticker {
   }
 
   private loop = (now: number) => {
-    const dt = Math.min(0.033, (now - this.last) / 1000);
+    const elapsed = now - this.last;
+    const dt = Math.min(0.033, elapsed / 1000);
     this.last = now;
+    const started = activeSpatialProfilerCount ? performance.now() : 0;
     this.subs.forEach(fn => fn(dt, now));
+    if (activeSpatialProfilerCount) recordSpatialFrame(elapsed, performance.now() - started);
     this.raf = this.subs.size ? requestAnimationFrame(this.loop) : 0;
   };
 }

@@ -37,16 +37,27 @@
 .sp-slot-inner { position: absolute; inset: 0; }
 .sp-slot.is-focus::after { content: ""; position: absolute; inset: 0; border: 1.5px solid color-mix(in srgb, var(--sp-accent) 50%, transparent); pointer-events: none; z-index: 20; }
 /* workspace pager: desktops (device scope) or a slot's saved workspaces (slot scope) */
-.sp-pager { position: absolute; bottom: 8px; transform: translateX(-50%); display: flex; align-items: center; gap: 5px; padding: 3px 5px; border-radius: 999px; z-index: 12;
+.sp-pager { position: absolute; transform: translateX(-50%); display: flex; align-items: center; gap: 5px; padding: 3px 5px; border-radius: 999px; z-index: 12;
   background: rgba(var(--sp-glass-rgb), 0.5); backdrop-filter: blur(10px); border: 1px solid var(--sp-rim); }
 .sp-pg-dot { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 4px; background: var(--sp-line-2); cursor: pointer; transition: width 0.3s, background 0.3s; }
 .sp-pg-dot.is-on { width: 16px; background: var(--sp-accent); }
 .sp-pg-add { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--sp-muted); font-size: 13px; line-height: 18px; cursor: pointer; }
 .sp-pg-add:hover { color: var(--sp-accent); background: var(--sp-surface-2); }
+.sp-pg-add.is-on { color: #fbbf24; }
+.sp-overview { position: absolute; inset: max(16px, 8%) max(16px, 10%); z-index: 80; display: flex; flex-direction: column; gap: 14px; border: 1px solid var(--sp-rim); border-radius: 20px; background: rgba(var(--sp-glass-rgb), 0.94); padding: 16px; box-shadow: var(--sp-shadow); backdrop-filter: blur(20px); }
+.sp-overview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sp-overview-head > div { display: flex; flex-direction: column; }
+.sp-overview-head span { color: var(--sp-muted); font-size: 10px; }
+.sp-overview-head button { border: 0; background: transparent; color: var(--sp-muted); cursor: pointer; font-size: 20px; }
+.sp-overview-grid { display: grid; min-height: 0; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; overflow: auto; }
+.sp-overview-grid button { display: flex; min-height: 110px; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 4px; border: 1px solid var(--sp-line); border-radius: 14px; background: var(--sp-surface); color: var(--sp-text); padding: 12px; text-align: left; cursor: pointer; }
+.sp-overview-grid button:hover { border-color: var(--sp-accent); background: var(--sp-surface-2); }
+.sp-overview-grid span, .sp-overview-grid small { color: var(--sp-muted); font-size: 10px; }
 /* continuous display: the crease is shading, not a gap */
 .sp-crease { position: absolute; z-index: 6; pointer-events: none; }
 .sp-crease.is-vertical { top: 0; bottom: 0; width: 12px; background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.28) 40%, rgba(255, 255, 255, 0.07) 55%, transparent); }
 .sp-crease.is-horizontal { left: 0; right: 0; height: 12px; background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.28) 40%, rgba(255, 255, 255, 0.07) 55%, transparent); }
+.sp-crease.is-separating { background: #050608; opacity: 1 !important; pointer-events: auto; }
 
 /* ── chrome ──────────────────────────────────────────────────── */
 .sp-chrome { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
@@ -55,6 +66,7 @@
   background: rgba(var(--sp-glass-rgb), 0.55); backdrop-filter: blur(14px); border-left: 1px solid var(--sp-line); touch-action: none; cursor: grab; }
 .sp-ib { width: 30px; height: 30px; border-radius: 10px; border: 1px solid transparent; background: none; display: grid; place-items: center; color: var(--sp-muted); cursor: pointer; }
 .sp-ib:hover { background: var(--sp-surface-2); color: var(--sp-text); }
+.sp-ib:disabled, .sp-fab:disabled { cursor: not-allowed; opacity: 0.35; }
 .sp-fab { position: absolute; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; color: var(--sp-muted);
   background: rgba(var(--sp-glass-rgb), 0.62); backdrop-filter: blur(14px) saturate(150%); border: 1px solid var(--sp-rim); box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.6); }
 .sp-ib svg, .sp-fab svg { width: 17px; height: 17px; }
@@ -98,12 +110,17 @@
 .sp-pane-h i { width: 7px; height: 7px; border-radius: 2px; background: var(--c); }
 .sp-pane-h em { margin-left: auto; font: 10px var(--sp-mono); font-style: normal; color: var(--sp-muted); }
 .sp-pane-b { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; }
+.sp-pane-host { min-width: 0; min-height: 100%; height: 100%; }
+.sp-empty-surface { display: grid; flex: 1; place-items: center; border: 1px dashed var(--sp-line); border-radius: 14px; color: var(--sp-muted); font-size: 11px; }
 
 .sp-two { flex: 1; min-height: 0; display: grid; }
 .sp-col { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
 .sp-divider { cursor: col-resize; display: grid; place-items: center; touch-action: none; }
 .sp-divider i { width: 4px; height: 56px; border-radius: 4px; background: var(--sp-line-2); box-shadow: 0 0 0 4px var(--sp-screen); transition: background 0.2s, height 0.2s; }
 .sp-divider:hover i { background: var(--sp-accent); height: 80px; }
+.sp-divider.is-horizontal { cursor: row-resize; }
+.sp-divider.is-horizontal i { width: 56px; height: 4px; }
+.sp-divider.is-horizontal:hover i { width: 80px; height: 4px; }
 
 .sp-banner { --c: var(--sp-muted); position: relative; flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px; border-radius: 12px; cursor: pointer; z-index: 3;
   background: color-mix(in srgb, var(--c) 10%, var(--sp-surface)); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); font-size: 11px; }

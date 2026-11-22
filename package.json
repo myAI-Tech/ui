@@ -44,6 +44,7 @@
     "build": "bunx tsup",
     "typecheck": "bunx tsc --noEmit",
     "check": "bun run typecheck && bun run build",
+    "test:spatial": "bun test tests/spatial",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "prepublishOnly": "bunx tsup"

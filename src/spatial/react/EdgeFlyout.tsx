@@ -3,7 +3,7 @@ import type { Rect } from "../device";
 import { Spring, clamp, easeOutBack, smooth, ticker } from "../physics";
 import { useSpatial } from "./context";
 
-export type FlyoutItem = { id: string; label: string; code: string; color: string; /** 1 = outer arc (default), 2 = inner arc */ ring?: 1 | 2 };
+export type FlyoutItem = { id: string; label: string; code?: string; icon?: React.ReactNode; color: string; /** 1 = outer arc (default), 2 = inner arc */ ring?: 1 | 2 };
 
 export type EdgeFlyoutOptions = {
   side: "left" | "right";
@@ -151,7 +151,7 @@ export function useEdgeFlyout(options: EdgeFlyoutOptions): EdgeFlyoutController 
           <button key={it.id} ref={el => { nodes.current[i] = el; }} type="button"
             className={["sp-fly-node", dir > 0 ? "is-left" : "is-right", it.id === options.current ? "is-current" : "", it.ring === 2 ? "is-inner" : ""].join(" ")}
             style={{ "--c": it.color } as React.CSSProperties} onClick={e => { e.stopPropagation(); select(i); }}>
-            <span className="sp-fly-ic">{it.code}</span><span className="sp-fly-lb">{it.label}</span>
+            <span className="sp-fly-ic">{it.icon ?? it.code ?? "•"}</span><span className="sp-fly-lb">{it.label}</span>
           </button>
         ))}
       </>}

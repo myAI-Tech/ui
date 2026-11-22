@@ -144,15 +144,28 @@ Real apps own the state; the library only raises actions (see §2.1):
 const { device, orientation } = useMeasuredDevice();            // real viewport + segments (§2.2)
 const snap = useMemo(() => store.load(), []);                    // reload continuity (§2.3)
 const [state, setState] = useState(() => snap?.state ?? initialSpatialState({ desktops: [{ slots: [{ experience: "home" }] }] }));
+const actions = [
+  { id: "search", label: "Search", icon: <SearchIcon />, onSelect: ({ slot }) => openSearch(slot) },
+  { id: "home", label: "Home", icon: <HomeIcon />, experience: "home", force: true },
+  { id: "whiteboard", label: "Whiteboard", icon: <WhiteboardIcon />, experience: "Whiteboard" },
+  { id: "account", label: "Account", icon: <UserIcon />, placement: "leading", onSelect: openAccount },
+];
 
 <SpatialProvider device={device} orientation={orientation} hinge={detectHinge()} experiences={experiences}
   state={state} onAction={a => setState(s => spatialReducer(s, a))} resumeAngle={snap?.angle}
   swipeScope="device" newDesktop={() => ({ slots: [{ experience: "home" }], inner: "span", focus: 0, tiles: 2, tileRatio: 0.5 })}
   projects={projects} onEvent={toastOrTelemetry}>
   <SnapshotRecorder store={store} />
-  <SpatialShell controls={{ chat: <ChatWorkspace />, onSearch, onAccount }} />
+  <SpatialShell controls={{ actions }} />
 </SpatialProvider>
 ```
+
+`ShellAction` is the global chrome contract: `id`, `label`, `icon`, optional
+`experience`, `force`, `placement`, `active`, `disabled`, and `onSelect`. Callback
+actions receive the current slot, experience, desktop, posture, dispatcher and
+event emitter. Experience actions select that experience on the visible screen;
+`force` is intended for global escape routes such as Home that must work through
+a locked workspace. Missing experience targets render disabled.
 
 Labs and Storybook can omit `state` and pass `initialState` instead; the provider
 then holds state itself and still reports every action to `onAction`.
@@ -173,7 +186,10 @@ opening the Explorer becomes `setExperience` on the focused slot.
 
 The library keeps only *ephemeral, per-frame* state internally: hinge and flyout
 springs, drags in progress, which banners are open, and the posture derived from
-the hinge. None of it is meaningful to persist or to drive from outside.
+the hinge. Pane bodies use stable host nodes so React state, uncontrolled values,
+editor instances and scroll positions survive movement between tabs, split panes,
+temporarily hidden fold surfaces and laptop decks. Workspace assignments, overlay
+positions, lock state and layout memory remain application-owned `SpatialState`.
 
 *Considered: a Web Worker state machine owning animation and state.* Rejected for
 now. Workers can't touch the DOM, so every frame would still be applied on the
@@ -191,7 +207,8 @@ seam federated machines or native clients would use.
 `measuredDevice(size, segments)`) builds the profile from the window size and
 viewport segments: two side-by-side segments → book foldable (crease width = the
 gap), two stacked → horizontal crease, otherwise one screen (phone below 600px on
-the short side, large screen above).
+the short side, large screen above). Exact segment rectangles are retained. A
+positive gap is a physical occlusion; a zero-width crease is a continuous display.
 
 A folded device reports no segments, so it measures as a phone. Unfolding then
 arrives as a profile change rather than a continuous transition unless a hinge
@@ -205,7 +222,9 @@ A floating panel shows:
 * the window, screen and visual-viewport sizes, DPR and orientation;
 * viewport segments, `navigator.devicePosture`, and the segment / posture media queries;
 * the hinge source, its capabilities and live reading, plus the live fold angle and openness;
-* the posture, resolved surfaces and their arrangements.
+* the posture, resolved surfaces and their arrangements;
+* sampled frame pacing, ticker cost, React commit duration, long tasks, layout
+  shifts and recent page lifecycle events.
 
 It can switch to a simulated hinge with an angle slider, tune the posture,
 spring and layout tokens live, and copy the report, the measured device profile
@@ -221,7 +240,11 @@ The snapshot holds the state, fold angle, posture and orientation.
 `<SnapshotRecorder>` saves it debounced and on `pagehide`. On load, pass
 `snap.state` and `resumeAngle={snap.angle}`: the fold spring starts from the saved
 angle and animates to the current reading, so a reload on a half-open device eases
-into place instead of snapping. Snapshots expire after 30 minutes by default.
+into place instead of snapping. An unknown initial native reading holds the saved
+angle until the host reports an authoritative angle or posture. Snapshots are
+validated, normalized and expire after 30 minutes by default. `pageshow`,
+`pagehide`, `visibilitychange`, orientation, visual-viewport and legacy Safari
+media-query lifecycles are observed.
 
 ### Interaction contract (built into the shell)
 
@@ -231,13 +254,15 @@ into place instead of snapping. Snapshots expire after 30 minutes by default.
 * **Context pull:** dragging the rail (or, on floating-chrome devices, the right edge)
   inward opens the context flyout for the focused slot. It holds the experience's
   posture actions, plus Split/Span and Swap halves when unfolded.
-* **Controls:** bottom-justified rail (search, chat, account) on rail devices. On
-  slab phones, floating round buttons: account top-left, search and chat top-right.
-* **Chat toggle:** lit whenever a `chat`-role pane is already on screen. Tapping
-  tucks or restores that half, flips the tab, or opens/closes the banner. Only when
-  no chat is on screen does it open the overlay panel.
+* **Global actions:** app-supplied `ShellAction`s render bottom-justified on rail
+  devices and as leading/trailing floating buttons on slab phones. The reference
+  lab supplies Search, forced Home, Whiteboard and Account. Chat remains available
+  as a normal experience or pane rather than a reserved shell button.
 * **Swipe** horizontally to switch desktops (or, in slot scope, the touched half's saved workspaces).
-  **＋** in the pager adds one; the context flyout also offers *New desktop* / *Close desktop*.
+  **＋** in the pager adds one. **×** closes after confirmation. On foldables, the
+  following **…** opens a liquid workspace menu: *Divide* creates independent,
+  swipeable screen stacks; *Merge* returns to one unified experience; *Overview*
+  shows active screen views; *Lock* prevents experience/project reassignment.
   Experiences inside a desktop change through the spatial handles, not by swiping.
 * **Drag a page-marker onto another marker** to put both panes across the two halves.
   Drop on the target's left half for the left screen, right half for the right.
@@ -428,7 +453,7 @@ half shows the app and the **deck** below is controlled by the experience:
 ```ts
 postures: {
   laptop: {
-    deck: { kind: "keyboard" }                       // default
+    deck: { kind: "keyboard", onKey: routeDeckKey }  // consumer-owned input routing
         | { kind: "pane", pane: "guide" }            // move a pane to the deck
         | { kind: "controls", render: ctx => <Transport /> },
     actions: [{ id: "stop", label: "Stop job", glyph: "■", run }],   // touch bar + context flyout
@@ -471,10 +496,12 @@ Suggested per-mode mapping for DevEn (to confirm):
 * Storybook: *Workspaces / Spatial Interface* (`stories/SpatialInterface.stories.tsx`,
   fixtures in `stories/spatialFixtures.tsx`) uses `DeviceFrame` and a simulated hinge.
   *Workspaces / Spatial Device Probe* (`stories/spatialProbe.tsx`) is the real-device
-  harness from §2.2.
-* Still to do: unit tests for `resolveArrangement`, `resolveDevice`, `spatialReducer`,
-  `computePosture`, `surfacesFor` and `targetAngle`. They are pure functions. The repo has
-  no test runner yet.
+  harness from §2.2. *Spatial / Viewport and Motion Lab* adds real iframe viewport
+  presets, fit scaling, representative slab/continuous/dual-screen/tablet/desktop
+  profiles, motion controls, metrics, and real `WindowWorkspace`/`ChatWorkspace`
+  integration canaries.
+* Run `bun run test:spatial` for pure geometry, persistence, arrangement and state
+  contract tests.
 
 No new dependencies: React ≥ 18 only. Tailwind is not required; colours come from
 the myui theme variables (`--background`, `--card`, `--muted`, `--border`,
@@ -491,19 +518,18 @@ and pane `render` functions are F# lambdas returning `ReactElement`.
 
 ## 8. Known gaps
 
-* **Pane instance continuity.** When the arrangement changes (unfold, tabs → halves,
-  chat tucked), React remounts pane components, so editor cursor and scroll reset unless
-  the pane keeps that state itself. Fix in the library: render panes once into stable
-  host nodes and move them between layouts with portals. Fix per app: Monaco with `path`
-  and `saveViewState`.
+* Custom experience renderers bypass pane hosts and remain responsible for their own
+  state continuity. Stateful app editors should still use stable document identities
+  and application-level view-state persistence.
 * **Folded → unfolded on real hardware** measures as a profile change (§2.2); smooth
   transitions there depend on a hinge source with an angle. Confirm with the probe.
-* Physical-gap foldables: `creaseWidth` is measured but layouts still assume a continuous
-  display (no gutter is reserved).
 * Posture hysteresis (§5.2).
 * Horizontal-crease fold transitions (§4).
 * Tablet / desktop tiling UX is parked; the core supports 1–4 tiles plus a divider only.
 * Real iPhone Duo dimensions are placeholders (`devices.iphoneDuo`).
+* Browser posture APIs generally expose discrete posture and segments, not a smooth
+  angle. Continuous sensor animation requires the documented native bridge. Current
+  spring values and fold choreography are simulation defaults, not hardware calibration.
 * Accessibility: flyout nodes are buttons, but there is no roving focus / ARIA menu
   semantics yet, and pulls have no keyboard equivalent beyond `[` / `]`.
 * Bezel-started pulls (a drag beginning on the hardware frame) are lab-only.

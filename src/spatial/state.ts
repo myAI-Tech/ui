@@ -3,6 +3,7 @@ import type { ArrangementMemory, ChatPlacement, WindowRect } from "./experience"
 import { clamp } from "./physics";
 
 export type SlotState = { experience: string; project?: string };
+export type OverlayState = { x: number; y: number; minimized: boolean };
 /** A favourite pairing: two experiences (possibly in different projects), one per half. */
 export type PairSpec = { name: string; left: SlotState; right: SlotState };
 
@@ -20,6 +21,10 @@ export type DesktopState = {
   focus: number;
   tiles: 1 | 2 | 3 | 4;
   tileRatio: number;
+  /** Prevent experience/project reassignment on this desktop until explicitly unlocked. */
+  locked?: boolean;
+  /** Optional per-desktop override: split foldables can swipe each screen independently. */
+  swipeScope?: "device" | "slot";
   /** Per-slot stacks of saved single workspaces (swipeScope "slot"). Absent = just the slot itself. */
   stacks?: Record<number, { saved: SlotState[]; at: number }>;
 };
@@ -31,10 +36,11 @@ export type SpatialState = ArrangementMemory & {
   hand: "left" | "right";
   pairs: PairSpec[];
   prevPane: Record<string, number>;
+  overlays: Record<string, OverlayState>;
 };
 
 export type SpatialAction =
-  | { type: "setExperience"; slot: number; id: string; viaLeftHandle?: boolean }
+  | { type: "setExperience"; slot: number; id: string; viaLeftHandle?: boolean; force?: boolean }
   | { type: "focus"; slot: number }
   | { type: "setInner"; inner: InnerMode }
   | { type: "swapHalves" }
@@ -55,7 +61,10 @@ export type SpatialAction =
   | { type: "setWindows"; key: string; windows: WindowRect[] }
   | { type: "setTiles"; tiles: 1 | 2 | 3 | 4 }
   | { type: "setTileRatio"; ratio: number }
-  | { type: "setProject"; slot: number; project: string };
+  | { type: "setProject"; slot: number; project: string }
+  | { type: "setOverlay"; id: string; overlay: OverlayState }
+  | { type: "setLocked"; locked: boolean }
+  | { type: "setSwipeScope"; scope: "device" | "slot" };
 
 let seq = 0;
 const newId = () => `d${Date.now().toString(36)}${(seq++).toString(36)}`;
@@ -68,7 +77,7 @@ export type InitialSpatialState = Partial<Omit<SpatialState, "desktops">> & { de
 
 export function initialSpatialState(init: InitialSpatialState): SpatialState {
   return {
-    active: 0, hand: "right", pairs: [], prevPane: {},
+    active: 0, hand: "right", pairs: [], prevPane: {}, overlays: {},
     compactOverride: "auto", pane: {}, ratio: {}, duoPanes: {}, chatTucked: {}, windows: {},
     ...init,
     desktops: init.desktops.map(desktop),
@@ -91,12 +100,13 @@ export function spatialReducer(s: SpatialState, a: SpatialAction): SpatialState 
 
   switch (a.type) {
     case "setExperience": {
+      if (d.locked && !a.force) return s;
       // the left handle claims the left half
       return setSlot(a.slot, { experience: a.id }, { focus: a.slot, ...(a.viaLeftHandle && d.inner === "span" ? { inner: "split" as const } : {}) });
     }
     case "focus": return d.focus === a.slot ? s : put({ focus: a.slot });
     case "setInner": return put({ inner: a.inner });
-    case "swapHalves": return put({ slots: [d.slots[1], d.slots[0], ...d.slots.slice(2)] });
+    case "swapHalves": return d.locked ? s : put({ slots: [d.slots[1], d.slots[0], ...d.slots.slice(2)] });
     case "addDesktop": {
       const desktops = [...s.desktops, { ...a.desktop, id: newId() }];
       return { ...s, desktops, active: a.activate === false ? s.active : desktops.length - 1 };
@@ -109,10 +119,12 @@ export function spatialReducer(s: SpatialState, a: SpatialAction): SpatialState 
     case "switchDesktop": return { ...s, active: clamp(a.index, 0, s.desktops.length - 1) };
     case "renameDesktop": return { ...s, desktops: s.desktops.map((x, i) => (i === a.index ? { ...x, name: a.name } : x)) };
     case "addSlotWorkspace": {
+      if (d.locked) return s;
       const st = slotStack(d, a.slot), saved = [...st.saved.map((w, i) => (i === st.at ? d.slots[a.slot] : w)), a.workspace];
       return setSlot(a.slot, a.workspace, { focus: a.slot, stacks: { ...d.stacks, [a.slot]: { saved, at: saved.length - 1 } } });
     }
     case "stepSlotWorkspace": {
+      if (d.locked) return s;
       const st = slotStack(d, a.slot), at = clamp(st.at + a.dir, 0, st.saved.length - 1);
       if (at === st.at) return s;
       const saved = st.saved.map((w, i) => (i === st.at ? d.slots[a.slot] : w));   // keep edits made while it was showing
@@ -136,13 +148,16 @@ export function spatialReducer(s: SpatialState, a: SpatialAction): SpatialState 
         default: return s;   // banners open/close locally
       }
     }
-    case "applyPair": return put({ slots: [{ ...a.pair.right }, { ...a.pair.left }, ...d.slots.slice(2)], inner: "split", tiles: d.tiles < 2 ? 2 : d.tiles });
+    case "applyPair": return d.locked ? s : put({ slots: [{ ...a.pair.right }, { ...a.pair.left }, ...d.slots.slice(2)], inner: "split", tiles: d.tiles < 2 ? 2 : d.tiles });
     case "savePair": return { ...s, pairs: [...s.pairs, { name: a.name, left: { ...d.slots[1] }, right: { ...d.slots[0] } }].slice(-6) };
     case "setHand": return { ...s, hand: a.hand };
     case "setCompact": return { ...s, compactOverride: a.mode };
     case "setWindows": return { ...s, windows: { ...s.windows, [a.key]: a.windows } };
     case "setTiles": return put({ tiles: a.tiles, focus: a.tiles > d.focus ? d.focus : 0 });
     case "setTileRatio": return put({ tileRatio: clamp(a.ratio, 0.25, 0.75) });
-    case "setProject": return setSlot(a.slot, { project: a.project });
+    case "setProject": return d.locked ? s : setSlot(a.slot, { project: a.project });
+    case "setOverlay": return { ...s, overlays: { ...s.overlays, [a.id]: a.overlay } };
+    case "setLocked": return put({ locked: a.locked });
+    case "setSwipeScope": return put({ swipeScope: a.scope });
   }
 }

@@ -81,6 +81,8 @@ export function webHinge(win: Window = window): HingeSource {
   };
   const ev = emitter();
   const fire = () => ev.emit(read());
+  const listenMq = (mq: MediaQueryList | undefined) => mq?.addEventListener ? mq.addEventListener("change", fire) : mq?.addListener?.(fire);
+  const unlistenMq = (mq: MediaQueryList | undefined) => mq?.removeEventListener ? mq.removeEventListener("change", fire) : mq?.removeListener?.(fire);
   return {
     id: "web",
     capabilities: { continuousAngle: false, discretePosture: !!nav.devicePosture, segments: !!(hSeg || host.viewport) },
@@ -89,17 +91,23 @@ export function webHinge(win: Window = window): HingeSource {
       const off = ev.subscribe(l);
       if (ev.size === 1) {
         win.addEventListener("resize", fire);
+        win.addEventListener("orientationchange", fire);
+        win.addEventListener("pageshow", fire);
+        win.visualViewport?.addEventListener("resize", fire);
         nav.devicePosture?.addEventListener?.("change", fire);
-        hSeg?.addEventListener?.("change", fire);
-        vSeg?.addEventListener?.("change", fire);
+        listenMq(hSeg);
+        listenMq(vSeg);
       }
       return () => {
         off();
         if (ev.size === 0) {
           win.removeEventListener("resize", fire);
+          win.removeEventListener("orientationchange", fire);
+          win.removeEventListener("pageshow", fire);
+          win.visualViewport?.removeEventListener("resize", fire);
           nav.devicePosture?.removeEventListener?.("change", fire);
-          hSeg?.removeEventListener?.("change", fire);
-          vSeg?.removeEventListener?.("change", fire);
+          unlistenMq(hSeg);
+          unlistenMq(vSeg);
         }
       };
     },
@@ -127,6 +135,8 @@ export function nativeBridgeHinge({ channel = "myaiHinge", win = window as Nativ
     win.webkit?.messageHandlers?.[channel]?.postMessage({ type });
     type === "subscribe" ? win.MyAIHinge?.subscribe?.() : win.MyAIHinge?.unsubscribe?.();
   };
+  const onHide = () => send("unsubscribe");
+  const onShow = () => { send("subscribe"); ev.emit(reading); };
   return {
     id: "native",
     capabilities: { continuousAngle: true, discretePosture: true, segments: true },
@@ -136,8 +146,15 @@ export function nativeBridgeHinge({ channel = "myaiHinge", win = window as Nativ
       if (ev.size === 1) {
         win.__myaiHinge = r => { reading = { ...reading, ...r, source: "native", at: Date.now() }; ev.emit(reading); };
         send("subscribe");
+        win.addEventListener("pagehide", onHide);
+        win.addEventListener("pageshow", onShow);
       }
-      return () => { off(); if (ev.size === 0) { send("unsubscribe"); delete win.__myaiHinge; } };
+      return () => { off(); if (ev.size === 0) {
+        send("unsubscribe");
+        win.removeEventListener("pagehide", onHide);
+        win.removeEventListener("pageshow", onShow);
+        delete win.__myaiHinge;
+      } };
     },
   };
 }
@@ -148,10 +165,16 @@ export function hasNativeHinge(win: Window = window, channel = "myaiHinge") {
   return !!(w.webkit?.messageHandlers?.[channel] || w.MyAIHinge);
 }
 
+const detectedSources = new WeakMap<Window, HingeSource>();
+
 /** Best available source: native bridge → web posture APIs → a flat simulated hinge. */
 export function detectHinge(win: Window = window): HingeSource {
-  if (hasNativeHinge(win)) return nativeBridgeHinge({ win: win as NativeWindow });
+  const existing = detectedSources.get(win);
+  if (existing) return existing;
   const nav = win.navigator as Navigator & { devicePosture?: unknown };
-  if (nav.devicePosture || (win as unknown as SegmentsHost).viewport) return webHinge(win);
-  return simulatedHinge(180);
+  const source = hasNativeHinge(win) ? nativeBridgeHinge({ win: win as NativeWindow })
+    : nav.devicePosture || (win as unknown as SegmentsHost).viewport ? webHinge(win)
+      : simulatedHinge(180);
+  detectedSources.set(win, source);
+  return source;
 }

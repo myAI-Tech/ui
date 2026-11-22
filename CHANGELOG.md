@@ -22,6 +22,10 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Added `data-theme` palettes for light, dark, myAI/night, corporate, and business color schemes.
 - Added responsive workspace tiling presets, browser-style pane tabs, and persistent pane action menus.
 - Added a Storybook prototyping studio for theme, responsive-frame, primitive, workflow, workspace, and task-board exploration.
+- Added the spatial interface framework, device probe, opt-in profiler, representative foldable/dual-screen profiles, and viewport/motion Storybook lab.
+- Added foldable workspace controls for independent screen stacks, unified merge, active-view overview, persistent locking, and confirmed workspace close.
+- Added prop-driven spatial shell actions and a controlled Whiteboard experience for cross-device brainstorming.
+- Added spatial geometry, persistence, arrangement, and state contract tests.
 
 ### Changed
 
@@ -39,6 +43,8 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Fixed published package styling by scanning utility classes from the shipped `dist` bundle.
 - Fixed pane creation, zero-height canvas tiling, default close behavior, and responsive workspace overflow.
 - Fixed progress primitives so visual values are also exposed through Radix accessibility semantics.
+- Preserved spatial pane and overlay state across arrangement, fold posture, Safari lifecycle, and reload transitions.
+- Distinguished continuous creases from physical dual-screen occlusions and used measured segment rectangles for surface geometry.
 
 ## [0.1.0] - 2026-04-07
 

@@ -41,3 +41,5 @@ The implementation lives in:
 Add a scene to the `PrototypeScene` union and `sceneOptions`, then render it inside `PrototypePlayground`. Import package components through `../src` so the story exercises the public entry point.
 
 Story-specific CSS is intentionally separate from `src/styles/`; it is not shipped in the npm package.
+
+For foldable, dual-screen, tablet, desktop, posture, motion, and state-continuity exploration, use **Spatial / Viewport and Motion Lab**. It combines real Storybook iframe sizes with the spatial device simulator; a narrow decorative frame alone does not change CSS media-query behavior.

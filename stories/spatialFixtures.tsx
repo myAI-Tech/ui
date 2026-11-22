@@ -4,10 +4,12 @@
  * experience definitions live next to the app's own panes.
  */
 import * as React from "react";
+import { Home as HomeIcon, Search, User } from "lucide-react";
 import {
   DeviceFrame, FoldTransition, SpatialProvider, SpatialShell, defineExperience, devices, pane, simulatedHinge, useFoldFrame, useSpatial,
-  type ExperienceRenderContext, type Orientation, type PairSpec, type PaneSpec,
+  type ExperienceRenderContext, type Orientation, type PairSpec, type PaneSpec, type Rect, type ShellAction,
 } from "../src/spatial";
+import { Badge, WhiteboardSurface, type WhiteboardItem, type WhiteboardStroke } from "../src";
 
 // ── panes (placeholders; real apps pass their own components) ─────────────
 const box = (text: string) => () => <pre style={{ margin: 0, font: "11px/1.5 var(--sp-mono)", color: "var(--sp-muted)" }}>{text}</pre>;
@@ -62,6 +64,45 @@ function Home({ surface, span }: ExperienceRenderContext) {
   );
 }
 
+const initialWhiteboardItems: WhiteboardItem[] = [
+  { id: "spatial-note", kind: "note", x: 70, y: 100, width: 240, title: "Explore", text: "How should this experience adapt across one screen, two screens, and a half fold?", items: [], color: "#fef3c7" },
+  { id: "spatial-list", kind: "list", x: 360, y: 180, width: 230, title: "Signals", text: "", items: ["Preserve state", "Avoid the hinge", "Keep actions reachable"], color: "#e0e7ff" },
+];
+
+function avoidOcclusion(item: WhiteboardItem, occlusion?: Rect | null): WhiteboardItem {
+  if (!occlusion) return item;
+  const estimatedHeight = item.kind === "list" ? 170 : 130;
+  const intersects = item.x < occlusion.x + occlusion.w && item.x + item.width > occlusion.x
+    && item.y < occlusion.y + occlusion.h && item.y + estimatedHeight > occlusion.y;
+  if (!intersects) return item;
+  if (occlusion.h >= occlusion.w) {
+    const left = Math.max(8, occlusion.x - item.width - 8), right = occlusion.x + occlusion.w + 8;
+    return { ...item, x: item.x + item.width / 2 < occlusion.x + occlusion.w / 2 ? left : right };
+  }
+  const above = Math.max(8, occlusion.y - estimatedHeight - 8), below = occlusion.y + occlusion.h + 8;
+  return { ...item, y: item.y + estimatedHeight / 2 < occlusion.y + occlusion.h / 2 ? above : below };
+}
+
+function SpatialWhiteboard({ occlusion }: { occlusion?: Rect | null }) {
+  const [strokes, setStrokes] = React.useState<WhiteboardStroke[]>([]);
+  const [items, setItems] = React.useState<WhiteboardItem[]>(initialWhiteboardItems);
+  React.useEffect(() => setItems(current => current.map(item => avoidOcclusion(item, occlusion))), [occlusion?.x, occlusion?.y, occlusion?.w, occlusion?.h]);
+  return (
+    <div style={{ height: "100%", minHeight: 0, overflow: "hidden" }}>
+      <WhiteboardSurface
+        strokes={strokes}
+        items={items}
+        onAddStroke={stroke => setStrokes(current => [...current, { ...stroke, id: `stroke-${Date.now()}` }])}
+        onRemoveStroke={id => setStrokes(current => current.filter(stroke => stroke.id !== id))}
+        onAddItem={item => setItems(current => [...current, avoidOcclusion({ ...item, id: `item-${Date.now()}` }, occlusion)])}
+        onUpdateItem={(id, updates) => setItems(current => current.map(item => item.id === id ? avoidOcclusion({ ...item, ...updates }, occlusion) : item))}
+        onRemoveItem={id => setItems(current => current.filter(item => item.id !== id))}
+        toolbarEndSlot={<Badge variant="secondary">Spatial brainstorming</Badge>}
+      />
+    </div>
+  );
+}
+
 // ── experiences (mirror WorkspaceMode.fs ModeContracts) ────────────────────
 export const devenExperiences = [
   defineExperience({ id: "home", label: "Home", code: "HM", accent: "#34d399", panes: [], render: ctx => <Home {...ctx} /> }),
@@ -76,9 +117,11 @@ export const devenExperiences = [
       laptop: { actions: [{ id: "prev", label: "Prev step", glyph: "‹" }, { id: "next", label: "Next step", glyph: "›" }], deck: { kind: "pane", pane: "guide" } },
     } }),
   defineExperience({ id: "Terminal", label: "Terminal", code: "TM", accent: "#34d399", layout: "Split", panes: [P.shell(), P.runtime()],
-    postures: { laptop: { deck: { kind: "keyboard" }, actions: [{ id: "stop", label: "Stop job", glyph: "■" }] } } }),
+    postures: { laptop: { deck: { kind: "keyboard", onKey: key => console.debug("[spatial keyboard]", key) }, actions: [{ id: "stop", label: "Stop job", glyph: "■" }] } } }),
   defineExperience({ id: "Play", label: "Play", code: "PL", accent: "#fb7185", layout: "Split", panes: [P.preview(), P.shell()],
     postures: { laptop: { deck: { kind: "controls", render: () => <div style={{ padding: 12 }}>▶ reload · ⇱ expose route · ⦿ debugger</div> } } } }),
+  defineExperience({ id: "Whiteboard", label: "Whiteboard", code: "WB", accent: "#f59e0b", layout: "Canvas",
+    panes: [pane("whiteboard", "Brainstorming canvas", ctx => <SpatialWhiteboard occlusion={ctx.surface.occlusion} />, { short: "Board", role: "primary", owner: "shared", flow: "crossfade" })] }),
   defineExperience({ id: "Custom", label: "Custom", code: "CU", accent: "#94a3b8", layout: "Free-form", panes: [P.code(), P.chat(), P.shell(), P.knowledge()],
     free: { windows: [{ pane: "code", x: 2, y: 3, w: 58, h: 60 }, { pane: "chat", x: 62, y: 3, w: 36, h: 44 }, { pane: "shell", x: 2, y: 66, w: 58, h: 32 }, { pane: "knowledge", x: 62, y: 50, w: 36, h: 48 }] } }),
 ];
@@ -88,6 +131,28 @@ const pairs: PairSpec[] = [
   { name: "Pair ⇄ Shell", left: { experience: "PairProgram", project: "aide" }, right: { experience: "Terminal", project: "aide" } },
 ];
 const projects = [{ id: "aide", name: "DevEn", color: "#34d399" }, { id: "core", name: "myAI Core", color: "#38bdf8" }];
+
+export const demoShellActions: ShellAction[] = [
+  { id: "search", label: "Search", icon: <Search />, onSelect: ({ emit, slot }) => emit({ type: "notice", message: `Search requested for screen ${slot + 1}` }) },
+  { id: "home", label: "Home", icon: <HomeIcon />, experience: "home", force: true },
+  { id: "account", label: "Account", icon: <User />, placement: "leading", onSelect: ({ emit }) => emit({ type: "notice", message: "Account requested" }) },
+];
+
+export function DemoSpatialShell() {
+  const { experiences } = useSpatial();
+  const [favoriteIds, setFavoriteIds] = React.useState<string[]>([]);
+  const favorites: ShellAction[] = favoriteIds.flatMap(id => {
+    const experience = experiences[id];
+    return experience ? [{ id: `favorite-${id}`, label: experience.label, icon: <span>{experience.code}</span>, code: experience.code, color: experience.accent, experience: id }] : [];
+  });
+  return <SpatialShell controls={{
+    actions: demoShellActions,
+    favorites,
+    onFavoriteExperienceChange: ({ experience, pinned }) => setFavoriteIds(current => pinned
+      ? current.includes(experience.id) ? current : [...current, experience.id]
+      : current.filter(id => id !== experience.id)),
+  }} />;
+}
 
 /** Drives the simulated hinge with a slow, viscous unfold. */
 function FoldControls({ hinge }: { hinge: ReturnType<typeof simulatedHinge> }) {
@@ -115,7 +180,7 @@ export function SpatialLab() {
       <FoldControls hinge={hinge} />
       <button onClick={() => setOrientation(o => (o === "portrait" ? "landscape" : "portrait"))}>Rotate</button>
       <button onClick={() => setScope(s => (s === "device" ? "slot" : "device"))}>Swipe scope: {scope}</button>
-      <DeviceFrame><SpatialShell controls={{ chat: <div style={{ padding: 12 }}>Overlay chat</div>, onSearch: () => {}, onAccount: () => {} }} /></DeviceFrame>
+      <DeviceFrame><DemoSpatialShell /></DeviceFrame>
     </SpatialProvider>
   );
 }

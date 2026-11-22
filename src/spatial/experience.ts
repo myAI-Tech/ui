@@ -28,10 +28,13 @@ export type PaneSpec = {
   title: string;
   /** Label for page-marker tabs and the touch bar. */
   short?: string;
+  expandIcon?: ReactNode;
   color?: string;
   role?: PaneRole;
   /** Who owns the pane: a shared myui primitive or an app-local surface. Informational. */
   owner?: "shared" | "local";
+  /** Optional visible badge; ownership metadata is not rendered automatically. */
+  badge?: ReactNode;
   flow?: FlowProfile;
   render: (ctx: PaneContext) => ReactNode;
   /** One-line condensed form for banner layouts. Defaults to `summary` or the title. */
@@ -40,13 +43,27 @@ export type PaneSpec = {
 };
 
 export type ActionContext = { slot: number; experience: string; posture: PostureKind };
-export type ActionSpec = { id: string; label: string; glyph?: string; run?: (ctx: ActionContext) => void };
+export type ActionSpec = { id: string; label: string; icon?: ReactNode; glyph?: string; run?: (ctx: ActionContext) => void };
 
 /** What the lower surface shows in a half-fold (laptop) posture. */
 export type DeckSpec =
-  | { kind: "keyboard" }
+  | { kind: "keyboard"; onKey: (key: string, ctx: ActionContext) => void; layout?: VirtualKeyboardLayout }
   | { kind: "pane"; pane: string }
   | { kind: "controls"; render: (ctx: ActionContext) => ReactNode };
+
+export type VirtualKeyboardLayout = {
+  rows: Array<{ characters: string; before?: string[]; after?: string[] }>;
+  bottom: string[];
+  labels?: Record<string, ReactNode>;
+};
+
+export type ExperienceHeaderContext = {
+  experience: ExperienceSpec;
+  slot: number;
+  surface: Surface;
+  posture: PostureKind;
+  scopeId?: string;
+};
 
 /**
  * What an experience exposes in a given posture: extra actions (touch bar,
@@ -88,6 +105,8 @@ export type ExperienceSpec = {
   free?: { windows: WindowRect[] };
   /** Fully custom rendering (e.g. Home with fold transitions). Bypasses the resolver. */
   render?: (ctx: ExperienceRenderContext) => ReactNode;
+  /** Replaces the default label-only header. `false` removes the header. */
+  header?: false | ((ctx: ExperienceHeaderContext) => ReactNode);
 };
 
 export function pane(id: string, title: string, render: PaneSpec["render"], opts: Omit<PaneSpec, "id" | "title" | "render"> = {}): PaneSpec {
@@ -118,11 +137,12 @@ export type ArrangementMemory = {
 };
 
 export type Arrangement =
+  | { kind: "empty" }
   | { kind: "custom" }
   | { kind: "free"; windows: WindowRect[]; key: string }
   | { kind: "single"; pane: string }
   | { kind: "stack"; panes: string[] }
-  | { kind: "two"; left: string; right: string[]; banners: string[]; ratio: number; snap: number | null }
+  | { kind: "two"; left: string; right: string[]; banners: string[]; ratio: number; snap: number | null; axis: "vertical" | "horizontal" }
   | { kind: "tabs"; panes: string[]; active: number; side: "left" | "right" }
   | { kind: "banner"; primary: string; banners: string[] };
 
@@ -140,14 +160,18 @@ export function resolveArrangement(exp: ExperienceSpec, surface: Surface, mem: A
     const chat = exp.panes.find(p => p.role === "chat")?.id;
     const shown = chat && mem.chatTucked[exp.id] ? ids.filter(id => id !== chat) : ids;
     if (shown.length === 1) return { kind: "single", pane: shown[0] };
-    const snap = crease != null ? crease / surface.w : null;
-    const ratio = clamp(mem.ratio[exp.id] ?? snap ?? 0.5, t.dividerMin, t.dividerMax);
+    const axis = surface.crease?.axis ?? "vertical";
+    const dimension = axis === "vertical" ? surface.w : surface.h;
+    const snap = crease != null ? crease / dimension : null;
+    const ratio = surface.crease?.separating && snap != null
+      ? snap
+      : clamp(mem.ratio[exp.id] ?? snap ?? 0.5, t.dividerMin, t.dividerMax);
     const pair = mem.duoPanes[exp.id] ?? exp.span;
     if (pair && pair.every(id => shown.includes(id))) {
       const [left, right] = pair;
-      return { kind: "two", left, right: [right], banners: shown.filter(id => id !== left && id !== right), ratio, snap };
+      return { kind: "two", left, right: [right], banners: shown.filter(id => id !== left && id !== right), ratio, snap, axis };
     }
-    return { kind: "two", left: shown[0], right: shown.slice(1), banners: [], ratio, snap };
+    return { kind: "two", left: shown[0], right: shown.slice(1), banners: [], ratio, snap, axis };
   }
 
   if (surface.w * surface.h < t.compactArea) {
@@ -174,6 +198,37 @@ export function visiblePanes(arr: Arrangement): string[] {
   }
 }
 
+/** Remove a pane that is rendered by another physical surface, such as a laptop deck. */
+export function excludePane(arr: Arrangement, paneId: string): Arrangement {
+  switch (arr.kind) {
+    case "single": return arr.pane === paneId ? { kind: "empty" } : arr;
+    case "stack": {
+      const panes = arr.panes.filter(id => id !== paneId);
+      return panes.length ? panes.length === 1 ? { kind: "single", pane: panes[0] } : { ...arr, panes } : { kind: "empty" };
+    }
+    case "tabs": {
+      const activeId = arr.panes[arr.active], panes = arr.panes.filter(id => id !== paneId);
+      return panes.length ? panes.length === 1 ? { kind: "single", pane: panes[0] } : { ...arr, panes, active: Math.max(0, panes.indexOf(activeId)) } : { kind: "empty" };
+    }
+    case "banner": {
+      const banners = arr.banners.filter(id => id !== paneId);
+      if (arr.primary !== paneId) return { ...arr, banners };
+      return banners.length ? { kind: "single", pane: banners[0] } : { kind: "empty" };
+    }
+    case "two": {
+      const remaining = [arr.left, ...arr.right].filter(id => id !== paneId), banners = arr.banners.filter(id => id !== paneId);
+      if (!remaining.length) return banners.length ? { kind: "stack", panes: banners } : { kind: "empty" };
+      if (remaining.length === 1 && !banners.length) return { kind: "single", pane: remaining[0] };
+      return { ...arr, left: remaining[0], right: remaining.slice(1), banners };
+    }
+    case "free": {
+      const windows = arr.windows.filter(window => window.pane !== paneId);
+      return windows.length ? { ...arr, windows } : { kind: "empty" };
+    }
+    default: return arr;
+  }
+}
+
 export type SurfaceItem = { surface: Surface; exp: ExperienceSpec; project?: string; crease: number | null };
 
 /**
@@ -193,7 +248,8 @@ export function resolveDevice(items: SurfaceItem[], focusSlot: number, mem: Arra
     let arr = initial;
     if (arr.kind === "tabs") {
       const keep = arr.panes.filter(id => !shown.has(key(id)));
-      if (keep.length && keep.length < arr.panes.length) {
+      if (!keep.length) arr = { kind: "empty" };
+      else if (keep.length < arr.panes.length) {
         const activeId = arr.panes[arr.active];
         arr = keep.length === 1 ? { kind: "single", pane: keep[0] } : { ...arr, panes: keep, active: Math.max(0, keep.indexOf(activeId)) };
       }

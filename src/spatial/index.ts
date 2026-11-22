@@ -9,12 +9,22 @@ export * from "./hinge";
 export * from "./experience";
 export * from "./state";
 export * from "./persistence";
+export * from "./profiler";
 
 // React
 export { SpatialProvider, useSpatial, useFoldFrame, usePosture, usePostureState, useExperience, FoldClock } from "./react/context";
-export type { SpatialContextValue, SpatialProviderProps, SpatialEvent, FoldFrame, ProjectSpec } from "./react/context";
+export type { ControlledSpatialProviderProps, UncontrolledSpatialProviderProps, SpatialContextValue, SpatialProviderProps, SpatialEvent, FoldFrame, ProjectSpec } from "./react/context";
 export { SpatialShell } from "./react/SpatialShell";
-export type { SpatialShellProps, ShellControls } from "./react/SpatialShell";
+export type {
+  SpatialShellProps,
+  ShellControls,
+  ShellAction,
+  ShellActionContext,
+  BuiltInShellCommand,
+  ShellCommandPresentation,
+  SpatialShellMessages,
+  FavoriteExperienceChange,
+} from "./react/SpatialShell";
 export { ExperienceView, ExperienceHeader, PaneFrame, PaneBanner, PageMarkers, FreeCanvas } from "./react/ExperienceView";
 export { useEdgeFlyout } from "./react/EdgeFlyout";
 export type { EdgeFlyoutOptions, EdgeFlyoutController, FlyoutItem } from "./react/EdgeFlyout";
@@ -25,3 +35,4 @@ export { OverlayPanel } from "./react/OverlayPanel";
 export { DeviceFrame } from "./react/DeviceFrame";
 export { useMeasuredDevice, readViewport } from "./react/measure";
 export { SnapshotRecorder } from "./react/SnapshotRecorder";
+export { SpatialProfiler, useSpatialProfiler } from "./react/SpatialProfiler";

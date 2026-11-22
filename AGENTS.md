@@ -44,6 +44,7 @@ Common commands:
 bun run typecheck
 bun run build
 bun run check
+bun run test:spatial
 bun run storybook
 bun run build-storybook
 ```

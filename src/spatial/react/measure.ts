@@ -22,9 +22,22 @@ export function useMeasuredDevice(opts: MeasureOptions = {}): { device: DevicePr
       return same ? prev : next;
     })); };
     const mqs = ["(horizontal-viewport-segments: 2)", "(vertical-viewport-segments: 2)"].map(q => matchMedia(q));
-    addEventListener("resize", update); mqs.forEach(mq => mq.addEventListener?.("change", update));
+    const listenMq = (mq: MediaQueryList) => mq.addEventListener ? mq.addEventListener("change", update) : mq.addListener?.(update);
+    const unlistenMq = (mq: MediaQueryList) => mq.removeEventListener ? mq.removeEventListener("change", update) : mq.removeListener?.(update);
+    addEventListener("resize", update);
+    addEventListener("orientationchange", update);
+    addEventListener("pageshow", update);
+    visualViewport?.addEventListener("resize", update);
+    mqs.forEach(listenMq);
     update();
-    return () => { cancelAnimationFrame(raf); removeEventListener("resize", update); mqs.forEach(mq => mq.removeEventListener?.("change", update)); };
+    return () => {
+      cancelAnimationFrame(raf);
+      removeEventListener("resize", update);
+      removeEventListener("orientationchange", update);
+      removeEventListener("pageshow", update);
+      visualViewport?.removeEventListener("resize", update);
+      mqs.forEach(unlistenMq);
+    };
   }, [measure]);
   return m;
 }
